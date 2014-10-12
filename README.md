@@ -1,4 +1,4 @@
 rpiradio
 ========
 
-A Raspberry Pi internet radio based on GStreamer. 
+A Raspberry Pi internet radio player based on GStreamer. 
