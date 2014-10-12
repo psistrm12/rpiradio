@@ -85,13 +85,11 @@ class RotaryEncoder:
 
 		if delta == 1:
 			if self.direction == self.CLOCKWISE:
-				# print "Clockwise"
 				event = self.direction
 			else:
 				self.direction = self.CLOCKWISE
 		elif delta == 3:
 			if self.direction == self.ANTICLOCKWISE:
-				# print "Anticlockwise"
 				event = self.direction
 			else:
 				self.direction = self.ANTICLOCKWISE
