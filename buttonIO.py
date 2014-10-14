@@ -60,7 +60,7 @@ class RotaryEncoder:
 		GPIO.setup(self.pinA, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 		GPIO.setup(self.pinB, GPIO.IN, pull_up_down=GPIO.PUD_UP)
 		
-		# ddd events
+		# add events
 		GPIO.add_event_detect(self.pinA, GPIO.FALLING, callback=self.switch_event)
 		GPIO.add_event_detect(self.pinB, GPIO.FALLING, callback=self.switch_event)
 		return
