@@ -3,8 +3,11 @@ import gi
 gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
 
+import os.path
 import numpy as np
 import time
+import ConfigParser
+import urllib
 from buttonIO import RotaryEncoder, PushButton
 
 
@@ -12,8 +15,9 @@ GObject.threads_init()
 Gst.init(None)
 
 class StreamData():
-    def __init__(self, location):
+    def __init__(self, location, display_name):
         self.location = location
+        self.display_name = display_name
         self.organization = None
         self.nominal_bitrate = None
         self.title = None
@@ -72,18 +76,20 @@ class RPiRadio():
         print "linked volume to sink: %r" %ret
         # --
         
-        # create some StreamData objects
-        strm_kc = StreamData("http://koelncampus.uni-koeln.de:8001") 
-        strm_fip = StreamData("http://mp3.live.tv-radio.com/fip/all/fiphautdebit.mp3")
-        strm_rp_ogg = StreamData("http://stream-dc1.radioparadise.com/rp_192m.ogg")
-        strm_rp_aac = StreamData("http://stream-uk1.radioparadise.com/aac-128")#http://stream-uk1.radioparadise.com/mp3-192"
-        strm_cr = StreamData("http://173.193.14.162:8020")
+        self.stations_list = []     # we store all the StreamData objects here
+        self.station_cfg_file = 'stations.list'
+        # check if config file exists and write a default one if not
+        if not os.path.isfile(self.station_cfg_file):   
+            print "Unable to open config file. Creating default %s" %self.station_cfg_file
+            self.create_default_stations_list() 
+    
+        # try to read the stations fron config
+        self.stations_list = self.read_stations_list(self.station_cfg_file)# reads 'stations.list' config file
         
-        self.stations_list = []
-        self.stations_list.append(strm_rp_aac)
-        self.stations_list.append(strm_kc)
-        self.stations_list.append(strm_fip)
-        self.stations_list.append(strm_cr)
+        # fallback if file exists but is invalid, e.g. urls are wrong. We don't want to change the file in this case...
+        if not self.stations_list:
+            print "Config file exists but there's no valid URL. Adding default stream."
+            self.stations_list.append(StreamData('http://stream-uk1.radioparadise.com/aac-128', 'Radio Paradise'))
         
         self.stations_list_current_pos = 0;                             # keep track of where we are in the list now...
         self.stations_list_next_pos = self.stations_list_current_pos    # ...and where we want to go next (using thr rotary encoder)
@@ -124,8 +130,66 @@ class RPiRadio():
         self.mainloop = GObject.MainLoop()
         self.mainloop.run()
         return
+    
+    def read_stations_list(self, fname):
+        # read the config file
+        stations_list = []
+        config_parser = ConfigParser.ConfigParser()
+        ret = config_parser.read(fname)   # returns an empty list if file doesn't exist
+        if len(ret) > 0:
+            print "Reading %s" %fname
+            stations = config_parser.sections()
+
+            for sname in stations:   # iterate all sections, i.e. stations in our case
+                try:
+                    location = config_parser.get(sname, 'url')  # this option is mandatory for obvious resons...
+                    urllib.urlopen(location)    # test whether or not the url exists 
+                    if config_parser.has_option(sname, 'displayName'):  # this is optional -> default value: None
+                        display_name = config_parser.get(sname, 'displayName')
+                    else:
+                        display_name = None
+                    # if no exception got thrown at this point we can add the station to the list now    
+                    stations_list.append(StreamData(location, display_name))
+                    print "added %s" %location
+                    
+                except ConfigParser.NoOptionError:  # no url option in section
+                    #print sys.exc_info()[0]
+                    print "Error in 'stations.list' entry %s: url option missing!" %sname
+                except IOError:                     # url could not be opened
+                    print "Unable to open URL %s" %location
+            
+        return stations_list
+    
+    def create_default_stations_list(self):
+        sfile = open(self.station_cfg_file,'w')
+        sfile.write("# \n")
+        sfile.write("# This is the RPiRadio default config file. You can add your own streams by\n")
+        sfile.write("# adding a new section and at least an URL field. \n")
+        sfile.write("# \n")
+        sfile.write("# A new section starts with a unique ID in square brackets, e.g. [4]. For \n")
+        sfile.write("# each section a URL field is mandatory before the start of the next section.\n")
+        sfile.write("# The optional field 'displayName' is a custom string that is displayed as the\n")
+        sfile.write("# stream's name. If it's not given here it is replaced by the appropriate stream\n")
+        sfile.write("# tag.\n")  
+        sfile.write("# See below for examples! \n")
+        sfile.write("# \n")
         
-    # These are the event callback routines to handle events
+        config_parser = ConfigParser.ConfigParser()
+        config_parser.add_section('1')
+        config_parser.set('1','url', 'http://stream-uk1.radioparadise.com/aac-128')
+        config_parser.set('1','displayName', 'Radio Paradise')
+        config_parser.add_section('2')
+        config_parser.set('2','url', 'http://koelncampus.uni-koeln.de:8001')
+        #config_parser.set('2','displayName', 'Koelncampus')
+        config_parser.add_section('3')
+        config_parser.set('3','url', 'http://mp3.live.tv-radio.com/fip/all/fiphautdebit.mp3')
+        config_parser.set('3','displayName', 'fip')
+        config_parser.write(sfile)
+        
+        sfile.close()
+        return
+    
+    # These are callback routines handling button events
     def on_volume_event(self, event):
         volume = self.pipeline.get_by_name("vol")
         if event == RotaryEncoder.CLOCKWISE:
@@ -150,10 +214,9 @@ class RPiRadio():
         
         elif event == PushButton.BUTTONUP:
             self.time_up = time.time()
-            time_hold = self.time_up - self.time_down
-            print time_hold
+            time_hold = self.time_up - self.time_down   # 
             # a short press will toggle Play/Pause
-            if (time_hold < 1):
+            if (time_hold < 1 and time_hold > 0):
                 if state == Gst.State.PAUSED:
                     self.pipeline.set_state(Gst.State.PLAYING)
                     print "set pipeline to PLAYING"
