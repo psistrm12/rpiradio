@@ -8,6 +8,7 @@
 
 import RPi.GPIO as GPIO
 
+
 class PushButton:
 	BUTTONDOWN = 1
 	BUTTONUP = 2
@@ -26,10 +27,11 @@ class PushButton:
 		
 	# Push button up event
 	def button_event(self, b_event):
-		if GPIO.input(b_event): 
+		if GPIO.input(b_event):
 			event = self.BUTTONDOWN
 		else:
 			event = self.BUTTONUP 
+			
 		self.callback(event)
 		return
 	

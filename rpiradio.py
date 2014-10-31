@@ -4,6 +4,7 @@ gi.require_version('Gst', '1.0')
 from gi.repository import GObject, Gst
 
 import numpy as np
+import time
 from buttonIO import RotaryEncoder, PushButton
 
 
@@ -34,7 +35,6 @@ class StreamData():
         if title != self.title:
             self.title = title
             print title
-        
         
         return
     
@@ -72,7 +72,6 @@ class RPiRadio():
         print "linked volume to sink: %r" %ret
         # --
         
-        
         # create some StreamData objects
         strm_kc = StreamData("http://koelncampus.uni-koeln.de:8001") 
         strm_fip = StreamData("http://mp3.live.tv-radio.com/fip/all/fiphautdebit.mp3")
@@ -108,7 +107,7 @@ class RPiRadio():
         vol_input = RotaryEncoder(VOL_UP_PIN, VOL_DOWN_PIN, self.on_volume_event) 
         # a simple pushbutton for settint toggling play/pause 
         PLAY_PAUSE_PIN = 4
-        BTN_BOUNCETIME = 200
+        BTN_BOUNCETIME = 50
         play_pause_input = PushButton(PLAY_PAUSE_PIN, BTN_BOUNCETIME, self.on_play_pause_event)
         
         # define GPIO inputs for selector
@@ -121,6 +120,9 @@ class RPiRadio():
         self.CHANGE_VOL_STEP = 0.02
         
         self.pipeline = pipeline
+        
+        self.mainloop = GObject.MainLoop()
+        self.mainloop.run()
         return
         
     # These are the event callback routines to handle events
@@ -141,18 +143,36 @@ class RPiRadio():
         return
     
     def on_play_pause_event(self, event):
+        state = self.pipeline.get_state(0)[1]   # get current state of the pipeline
         if event == PushButton.BUTTONDOWN:
-            state = self.pipeline.get_state(0)[1]   # current state of the pipeline
-            if state == Gst.State.PAUSED:
-                self.pipeline.set_state(Gst.State.PLAYING)
-                print "set pipeline to PLAYING"
-                return
-            elif state == Gst.State.PLAYING:
-                self.pipeline.set_state(Gst.State.PAUSED)
-                print "set pipeline to PAUSED"
-                return
-        #elif event == PushButton.BUTTONUP:
-        #    print "Pushbutton up - ignored"
+            self.time_down = time.time()          
+            return
+        
+        elif event == PushButton.BUTTONUP:
+            self.time_up = time.time()
+            time_hold = self.time_up - self.time_down
+            print time_hold
+            # a short press will toggle Play/Pause
+            if (time_hold < 1):
+                if state == Gst.State.PAUSED:
+                    self.pipeline.set_state(Gst.State.PLAYING)
+                    print "set pipeline to PLAYING"
+                    return
+                elif state == Gst.State.PLAYING:
+                    self.pipeline.set_state(Gst.State.PAUSED)
+                    print "set pipeline to PAUSED"
+            # a long press will set the pipeline to NULL, i.e. stop the stream connection 
+            else:
+                if state == Gst.State.PLAYING or state == Gst.State.PAUSED:
+                    print "setting pipeline to NULL"
+                    self.pipeline.set_state(Gst.State.NULL)
+                    #self.mainloop.quit()
+                    print "Goodbye"
+                    return
+                elif state == Gst.State.NULL:
+                    print "wake up!!!"
+                    #self.mainloop.run()
+                    self.pipeline.set_state(Gst.State.PLAYING)
         return
     
     def on_rotate_stations_event(self, event):
@@ -202,10 +222,6 @@ def main():
     
     print "This is "+Gst.version_string()
     rpiradio = RPiRadio()
-    
-    #player.set_state(gst.STATE_NULL)
-    #loop.quit()
 
 
 main()
-GObject.MainLoop().run()
